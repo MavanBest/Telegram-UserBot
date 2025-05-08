@@ -1,56 +1,45 @@
 import os
 import json
-import importlib
-from telethon import TelegramClient, events
+import getpass
+from telethon import TelegramClient
 from telethon.sessions import StringSession
 from config import API_ID, API_HASH, PREFIXES
 
 class UserBot:
     def __init__(self):
         self.session_file = "session.json"
-        self.session_str = self._load_session()
-        self.client = TelegramClient(StringSession(self.session_str), API_ID, API_HASH)
-        self.prefixes = PREFIXES
-        
+        self.client = TelegramClient(
+            StringSession(self._load_session()),
+            API_ID,
+            API_HASH
+        )
+
     def _load_session(self):
-        """Загружает сессию из JSON-файла"""
+        """Загружает сессию из файла"""
         if os.path.exists(self.session_file):
-            try:
-                with open(self.session_file, 'r') as f:
-                    return json.load(f).get("session")
-            except (json.JSONDecodeError, KeyError):
-                return None
+            with open(self.session_file, 'r') as f:
+                return json.load(f).get("session")
         return None
 
     async def _save_session(self):
-        """Сохраняет сессию в JSON-файл"""
+        """Сохраняет сессию в файл"""
         with open(self.session_file, 'w') as f:
-            json.dump({"session": self.client.session.save()}, f, indent=2)
-
-    async def load_handlers(self):
-        """Динамически загружает обработчики из папки handlers"""
-        if not os.path.exists('handlers'):
-            os.makedirs('handlers')
-            
-        handler_files = [
-            f for f in os.listdir('handlers') 
-            if f.endswith('.py') and not f.startswith('_')
-        ]
-        
-        for file in handler_files:
-            try:
-                module = importlib.import_module(f'handlers.{file[:-3]}')
-                if hasattr(module, 'register'):
-                    await module.register(self)
-            except Exception as e:
-                print(f"Ошибка загрузки {file}: {str(e)}")
+            json.dump({"session": self.client.session.save()}, f)
 
     async def start(self):
-        """Запускает бота"""
-        await self.client.start()
-        await self._save_session()  # Сохраняем сессию после авторизации
-        print("✅ UserBot запущен!")
-        await self.load_handlers()
+        """Авторизация с обработкой 2FA"""
+        print("🔒 Запуск авторизации...")
+        
+        if not await self.client.is_user_authorized():
+            phone = input("Введите номер телефона (с кодом страны): ")
+            await self.client.start(
+                phone,
+                password=lambda: getpass.getpass("Введите пароль 2FA: "),
+                code_callback=lambda: input("Введите код из Telegram: ")
+            )
+            await self._save_session()
+        
+        print("✅ UserBot авторизован и готов к работе!")
         await self.client.run_until_disconnected()
 
 if __name__ == '__main__':
